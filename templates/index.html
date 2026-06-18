@@ -6,9 +6,6 @@
     <title>Kartikey: Election Assistant</title>
     
     <style>
-/* =====================================================
-   KARTIKEY – ELECTION ASSISTANT | Professional Theme
-   ===================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
@@ -594,19 +591,51 @@ async function sendMessage() {
         if (data.error) throw new Error(data.error || "API Error");
         if (!data.candidates || data.candidates.length === 0) throw new Error("No response from AI.");
 
-        const aiReply = data.candidates[0].content.parts[0].text;
+        const candidate = data.candidates[0];
+        const aiReply = candidate.content.parts[0].text;
+        
         const loadingEl = document.getElementById(loadingId);
         if (loadingEl) loadingEl.remove();
 
-        const formattedReply = aiReply
+        // 1. Format the basic text reply
+        let formattedReply = aiReply
             .trim()
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\n/g, '<br>');
 
+        // 2. Extract and append Google Search Grounding Citations
+        const grounding = candidate.groundingMetadata;
+        if (grounding && grounding.groundingChunks) {
+            let sourcesHTML = '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px;">';
+            sourcesHTML += '<strong style="color: var(--navy);">Verified Sources:</strong><ul style="list-style:none; padding:0; margin:6px 0 0 0;">';
+            
+            let hasSources = false;
+            grounding.groundingChunks.forEach(chunk => {
+                // The Gemini API returns search results inside a 'web' object
+                if (chunk.web && chunk.web.uri && chunk.web.title) {
+                    sourcesHTML += `<li style="margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <span style="opacity: 0.6;">🔗</span> 
+                        <a href="${chunk.web.uri}" target="_blank" class="msg-link" style="font-size: 11px;">
+                            ${chunk.web.title}
+                        </a>
+                    </li>`;
+                    hasSources = true;
+                }
+            });
+            sourcesHTML += '</ul></div>';
+
+            // Only append if we actually found web links
+            if (hasSources) {
+                formattedReply += sourcesHTML;
+            }
+        }
+
+        // 3. Render the final message
         const botEl = createMessageElement(false, formattedReply, true);
         history.appendChild(botEl);
         history.scrollTop = history.scrollHeight;
 
+        // 4. Speak the reply (the regex in your speakKartikey function will ignore the HTML)
         speakKartikey(aiReply); 
 
     } catch (error) {
@@ -616,13 +645,15 @@ async function sendMessage() {
             loadingEl.innerHTML = '';
             const err = document.createElement('div');
             err.className = 'message';
-            err.style.color = 'red';
-            err.style.borderColor = 'red';
-            err.textContent = 'Error: ' + error.message;
+            err.style.color = '#d32f2f';
+            err.style.background = '#ffebee';
+            err.style.borderColor = '#ffcdd2';
+            err.textContent = 'Connection Error: ' + error.message;
             loadingEl.appendChild(err);
         }
     }
-}
+
+  }
     </script>
 </body>
 </html>
