@@ -12,7 +12,7 @@ app = Flask(__name__, template_folder=os.path.join(basedir, 'templates'))
 app.secret_key = "kartikey_secret_session_key"
 
 # 4. PASTE YOUR FULL AQ. KEY HERE INSIDE THE QUOTES
-GEMINI_API_KEY = "AQ.Ab8RN6LjVBhDCpkdKP14NLSb-q3B0Ac1gx9tzxZ-STvyHALthQ"
+GEMINI_API_KEY = "PASTE_YOUR_FULL_API_KEY_HERE"
 
 # System Prompt
 SYSTEM_INSTRUCTION = "You are Kartikey, a professional India Election Assistant. Keep answers concise."
