@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kartikey: Election Assistant</title>
+    <title>My Sarthi: Election Assistant</title>
     
-    <style>
+    <style nonce="{{ csp_nonce }}">
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
@@ -355,6 +355,23 @@ body::after {
 }
 #send-btn svg { width: 20px; height: 20px; }
 #send-btn:hover { transform: scale(1.07); box-shadow: 0 6px 18px rgba(255,153,51,0.45); }
+#send-btn:disabled { cursor: wait; opacity: 0.6; transform: none; box-shadow: none; }
+
+.mic-btn { background: var(--saffron); color: #fff; }
+.message-error { color: #b71c1c; background: #ffebee; border-color: #ffcdd2; }
+.sources { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; }
+.sources ul { list-style: none; padding: 0; margin: 6px 0 0; }
+.sources li { margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sources a { font-size: 11px; }
+
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 3px solid rgba(26,42,108,0.55);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
 
 /* ---- FOOTER ---- */
 .chat-footer {
@@ -389,7 +406,7 @@ body::after {
                     </div>
                 </div>
                 <div class="header-actions">
-                    <button type="button" class="icon-btn" onclick="clearChat()" title="Restart Chat">
+                    <button type="button" id="clear-chat-btn" class="icon-btn" title="Restart Chat" aria-label="Restart chat">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                     </button>
                 </div>
@@ -397,263 +414,284 @@ body::after {
 
             <div class="eci-banner">
                 <span>Source: Election Commission of India</span>
-                <a href="https://eci.gov.in" target="_blank">Visit Official ECI</a>
+                <a href="https://eci.gov.in" target="_blank" rel="noopener noreferrer">Visit Official ECI</a>
             </div>
 
-            <div id="chat-messages" class="chat-messages"></div>
+            <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions"></div>
 
             <div class="quick-replies" id="quick-replies">
-                <button class="quick-reply-btn" onclick="document.getElementById('chat-input').value='When are the next elections?'; sendMessage();">Next Election?</button>
-                <button class="quick-reply-btn" onclick="document.getElementById('chat-input').value='How do I register to vote?'; sendMessage();">How to Vote?</button>
-                <button class="quick-reply-btn" onclick="document.getElementById('chat-input').value='Check my constituency'; sendMessage();">Constituency</button>
+                <button type="button" class="quick-reply-btn" data-message="When are the next elections?">Next Election?</button>
+                <button type="button" class="quick-reply-btn" data-message="How do I register to vote?">How to Vote?</button>
+                <button type="button" class="quick-reply-btn" data-message="Check my constituency">Constituency</button>
             </div>
 
             <div class="chat-input-container">
                 <form id="chat-form">
-                    <button type="button" id="mic-btn" class="icon-btn" style="background: var(--saffron); color: white;">🎙️</button>
-                    <input type="text" id="chat-input" placeholder="Ask about elections..." autocomplete="off">
-                    <button type="submit" id="send-btn">
+                    <button type="button" id="mic-btn" class="icon-btn mic-btn" aria-label="Use microphone" title="Use microphone">🎙️</button>
+                    <input type="text" id="chat-input" placeholder="Ask about elections..." autocomplete="off" maxlength="2000" aria-label="Your message">
+                    <button type="submit" id="send-btn" aria-label="Send message">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                 </form>
                 <footer class="chat-footer">
-                    Data is for informational purposes • <a href="https://voters.eci.gov.in/" target="_blank">Voter Portal</a>
+                    Data is for informational purposes • <a href="https://voters.eci.gov.in/" target="_blank" rel="noopener noreferrer">Voter Portal</a>
                 </footer>
             </div>
         </div>
     </div>
 
-    <script>
-// --- CHAT & UI EVENT LISTENERS ---
-document.getElementById('chat-form').addEventListener('submit', function (e) {
-    e.preventDefault();
+    <script nonce="{{ csp_nonce }}">
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const chatMessages = document.getElementById('chat-messages');
+const sendButton = document.getElementById('send-btn');
+const micButton = document.getElementById('mic-btn');
+let isSending = false;
+let availableVoices = [];
+
+chatForm.addEventListener('submit', (event) => {
+    event.preventDefault();
     sendMessage();
 });
 
-// --- VOICE FEATURES (Male Voice + English Reading) ---
-let availableVoices = [];
+document.getElementById('clear-chat-btn').addEventListener('click', clearChat);
+document.querySelectorAll('.quick-reply-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+        chatInput.value = button.dataset.message || '';
+        sendMessage();
+    });
+});
+
 function loadVoices() {
-    availableVoices = window.speechSynthesis.getVoices();
-}
-window.speechSynthesis.onvoiceschanged = loadVoices;
-loadVoices();
-
-function speakKartikey(text) { 
     if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); 
-        const cleanText = text.replace(/[*#]/g, ''); 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-
-        const preferredMaleVoices = [
-            "Microsoft David", "Google US English Male", "Alex", "Google UK English Male", "Microsoft Mark"
-        ];
-        
-        let kartikeyVoice = null;
-        for (let name of preferredMaleVoices) {
-            kartikeyVoice = availableVoices.find(v => v.name.includes(name));
-            if (kartikeyVoice) break;
-        }
-
-        if (!kartikeyVoice) {
-            kartikeyVoice = availableVoices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('man'));
-        }
-        
-        if (kartikeyVoice) {
-            utterance.voice = kartikeyVoice;
-        }
-        
-        utterance.lang = 'en-IN'; 
-        utterance.rate = 1.0; 
-        utterance.pitch = 0.9; 
-        
-        window.speechSynthesis.speak(utterance);
+        availableVoices = window.speechSynthesis.getVoices();
     }
 }
 
-// --- MICROPHONE SETUP ---
-const micBtn = document.getElementById('mic-btn');
-const chatInput = document.getElementById('chat-input');
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if ('speechSynthesis' in window) {
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    loadVoices();
+}
 
-if (SpeechRecognition && micBtn) {
+function speakKartikey(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text.replace(/[*#]/g, ''));
+    const preferredVoices = [
+        'Microsoft David', 'Google US English Male', 'Alex',
+        'Google UK English Male', 'Microsoft Mark'
+    ];
+    const voice = preferredVoices
+        .map((name) => availableVoices.find((item) => item.name.includes(name)))
+        .find(Boolean);
+    if (voice) utterance.voice = voice;
+    utterance.lang = 'en-IN';
+    utterance.rate = 1;
+    utterance.pitch = 0.9;
+    window.speechSynthesis.speak(utterance);
+}
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRecognition) {
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.lang = 'en-IN';
     recognition.interimResults = false;
-
     let isListening = false;
 
-    micBtn.addEventListener('click', () => {
+    micButton.addEventListener('click', () => {
         if (isListening) {
             recognition.stop();
-        } else {
-            try {
-                recognition.start();
-            } catch (err) {
-                console.error("Mic start error:", err);
-            }
+            return;
+        }
+        try {
+            recognition.start();
+        } catch (error) {
+            console.warn('Microphone could not be started:', error);
         }
     });
 
     recognition.onstart = () => {
         isListening = true;
-        micBtn.innerHTML = '🔴';
-        chatInput.placeholder = "Listening...";
+        micButton.textContent = '🔴';
+        micButton.setAttribute('aria-label', 'Stop microphone');
+        chatInput.placeholder = 'Listening...';
     };
-
     recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        chatInput.value = transcript;
+        chatInput.value = event.results[0][0].transcript.slice(0, 2000);
         sendMessage();
     };
-
     recognition.onerror = (event) => {
-        console.error("Mic error:", event.error);
-        if (event.error === 'not-allowed') {
-            alert("Microphone permission denied.");
-        }
+        console.warn('Microphone error:', event.error);
     };
-
     recognition.onend = () => {
         isListening = false;
-        micBtn.innerHTML = '🎙️';
-        chatInput.placeholder = "Ask about elections...";
+        micButton.textContent = '🎙️';
+        micButton.setAttribute('aria-label', 'Use microphone');
+        chatInput.placeholder = 'Ask about elections...';
     };
-} else if (micBtn) {
-    micBtn.style.display = 'none'; 
+} else {
+    micButton.hidden = true;
 }
 
-// --- MESSAGE ELEMENT CREATION ---
-function createMessageElement(isUser, content, useHTML=false) {
+function createMessageElement(isUser, content) {
     const group = document.createElement('div');
-    group.className = 'msg-group ' + (isUser ? 'user' : 'bot');
+    group.className = `msg-group ${isUser ? 'user' : 'bot'}`;
 
     const row = document.createElement('div');
     row.className = 'msg-row';
-
     const avatar = document.createElement('div');
     avatar.className = 'msg-avatar';
     avatar.textContent = isUser ? 'Y' : 'K';
     row.appendChild(avatar);
 
-    const msg = document.createElement('div');
-    msg.className = 'message';
-    if (useHTML) msg.innerHTML = content; else msg.textContent = content;
-    row.appendChild(msg);
+    const message = document.createElement('div');
+    message.className = 'message';
+    message.textContent = content;
+    row.appendChild(message);
 
     const time = document.createElement('div');
     time.className = 'msg-time';
-    const now = new Date();
-    time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    time.textContent = new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
     row.appendChild(time);
-
     group.appendChild(row);
     return group;
 }
 
-// --- CLEAR CHAT FUNCTION ---
-function clearChat() {
-    window.location.reload();
+function appendFormattedText(element, text) {
+    text.split(/(\*\*[^*\n]+\*\*)/g).forEach((part) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            const strong = document.createElement('strong');
+            strong.textContent = part.slice(2, -2);
+            element.appendChild(strong);
+            return;
+        }
+        part.split('\n').forEach((line, index) => {
+            if (index > 0) element.appendChild(document.createElement('br'));
+            element.appendChild(document.createTextNode(line));
+        });
+    });
 }
-// --- MAIN CHAT LOGIC ---
+
+function appendSources(message, chunks) {
+    const sources = [];
+    (Array.isArray(chunks) ? chunks : []).forEach((chunk) => {
+        const web = chunk && chunk.web;
+        if (!web || typeof web.uri !== 'string' || typeof web.title !== 'string') return;
+        try {
+            const url = new URL(web.uri);
+            if (url.protocol === 'https:' || url.protocol === 'http:') {
+                sources.push({ url: url.href, title: web.title });
+            }
+        } catch (_error) {
+            return;
+        }
+    });
+    if (!sources.length) return;
+
+    const section = document.createElement('div');
+    section.className = 'sources';
+    const heading = document.createElement('strong');
+    heading.textContent = 'Verified Sources:';
+    section.appendChild(heading);
+    const list = document.createElement('ul');
+    sources.slice(0, 5).forEach((source) => {
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        link.className = 'msg-link';
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = source.title;
+        item.appendChild(link);
+        list.appendChild(item);
+    });
+    section.appendChild(list);
+    message.appendChild(section);
+}
+
+function showError(message) {
+    const error = createMessageElement(false, message);
+    error.querySelector('.message').classList.add('message-error');
+    chatMessages.appendChild(error);
+}
+
+async function clearChat() {
+    const clearButton = document.getElementById('clear-chat-btn');
+    clearButton.disabled = true;
+    try {
+        const response = await fetch('/api/chat/reset', { method: 'POST' });
+        if (!response.ok) throw new Error('Unable to clear the conversation.');
+        chatMessages.replaceChildren();
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        clearButton.disabled = false;
+    }
+}
+
 async function sendMessage() {
-    const input = document.getElementById('chat-input');
-    const history = document.getElementById('chat-messages');
-    const userText = input.value.trim();
+    const userText = chatInput.value.trim();
+    if (!userText || isSending) return;
 
-    if (!userText) return;
+    isSending = true;
+    sendButton.disabled = true;
+    chatMessages.appendChild(createMessageElement(true, userText));
+    chatInput.value = '';
 
-    const userEl = createMessageElement(true, userText, false);
-    history.appendChild(userEl);
-    input.value = "";
-
-    const loadingId = "loading-" + Date.now();
     const loadingGroup = document.createElement('div');
     loadingGroup.className = 'msg-group bot';
-    loadingGroup.id = loadingId;
-    const typingWrap = document.createElement('div');
-    typingWrap.className = 'typing-indicator';
-    typingWrap.innerHTML = '<span></span><span></span><span></span>';
-    loadingGroup.appendChild(typingWrap);
-    history.appendChild(loadingGroup);
-    history.scrollTop = history.scrollHeight;
+    const typingIndicator = document.createElement('div');
+    typingIndicator.className = 'typing-indicator';
+    for (let index = 0; index < 3; index += 1) {
+        typingIndicator.appendChild(document.createElement('span'));
+    }
+    loadingGroup.appendChild(typingIndicator);
+    chatMessages.appendChild(loadingGroup);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 
     try {
         const response = await fetch('/api/chat', {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                text: userText
-            })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: userText })
         });
-
         const data = await response.json();
-        if (data.error) throw new Error(data.error || "API Error");
-        if (!data.candidates || data.candidates.length === 0) throw new Error("No response from AI.");
-
-        const candidate = data.candidates[0];
-        const aiReply = candidate.content.parts[0].text;
-        
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) loadingEl.remove();
-
-        // 1. Format the basic text reply
-        let formattedReply = aiReply
-            .trim()
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n/g, '<br>');
-
-        // 2. Extract and append Google Search Grounding Citations
-        const grounding = candidate.groundingMetadata;
-        if (grounding && grounding.groundingChunks) {
-            let sourcesHTML = '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px;">';
-            sourcesHTML += '<strong style="color: var(--navy);">Verified Sources:</strong><ul style="list-style:none; padding:0; margin:6px 0 0 0;">';
-            
-            let hasSources = false;
-            grounding.groundingChunks.forEach(chunk => {
-                // The Gemini API returns search results inside a 'web' object
-                if (chunk.web && chunk.web.uri && chunk.web.title) {
-                    sourcesHTML += `<li style="margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        <span style="opacity: 0.6;">🔗</span> 
-                        <a href="${chunk.web.uri}" target="_blank" class="msg-link" style="font-size: 11px;">
-                            ${chunk.web.title}
-                        </a>
-                    </li>`;
-                    hasSources = true;
-                }
-            });
-            sourcesHTML += '</ul></div>';
-
-            // Only append if we actually found web links
-            if (hasSources) {
-                formattedReply += sourcesHTML;
-            }
+        if (!response.ok) {
+            throw new Error(data.error || 'The chat request failed. Please try again.');
         }
 
-        // 3. Render the final message
-        const botEl = createMessageElement(false, formattedReply, true);
-        history.appendChild(botEl);
-        history.scrollTop = history.scrollHeight;
+        const candidate = data.candidates && data.candidates[0];
+        const parts = candidate && candidate.content && candidate.content.parts;
+        const aiReply = Array.isArray(parts) && parts[0] && parts[0].text;
+        if (typeof aiReply !== 'string' || !aiReply.trim()) {
+            throw new Error('The chat service returned an empty response.');
+        }
 
-        // 4. Speak the reply (the regex in your speakKartikey function will ignore the HTML)
-        speakKartikey(aiReply); 
-
+        const botGroup = createMessageElement(false, '');
+        const message = botGroup.querySelector('.message');
+        appendFormattedText(message, aiReply.trim());
+        appendSources(
+            message,
+            candidate.groundingMetadata && candidate.groundingMetadata.groundingChunks
+        );
+        loadingGroup.remove();
+        chatMessages.appendChild(botGroup);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        speakKartikey(aiReply);
     } catch (error) {
-        console.error(error);
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) {
-            loadingEl.innerHTML = '';
-            const err = document.createElement('div');
-            err.className = 'message';
-            err.style.color = '#d32f2f';
-            err.style.background = '#ffebee';
-            err.style.borderColor = '#ffcdd2';
-            err.textContent = 'Connection Error: ' + error.message;
-            loadingEl.appendChild(err);
-        }
+        console.error('Chat request failed:', error);
+        loadingGroup.remove();
+        showError(error.message || 'Unable to connect. Please try again.');
+    } finally {
+        isSending = false;
+        sendButton.disabled = false;
+        chatInput.focus();
     }
-
-  }
+}
     </script>
 </body>
 </html>
